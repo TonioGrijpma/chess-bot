@@ -1,4 +1,4 @@
-// from: https://www.chessprogramming.org/Simplified_Evaluation_Function
+// from: https://www.chessprogramming.org/Simplified_Evaluation_Function#Piece-Square_Tables
 
 // pawn
 const p = [

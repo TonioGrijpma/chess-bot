@@ -1,4 +1,3 @@
-// TODO promotions visually stay pawn
 function replayMatch(){
     let el = document.getElementById("winner");
     let isDone = false;
@@ -50,8 +49,6 @@ function replayMatch(){
             let newColor = (board[moveList[i + 1][0][0]][moveList[i + 1][0][1]] < 9) ? "white" : "black";
             turnColor = newColor;
         }, (i * REPLAY_SPEED) + REPLAY_SPEED);
-        
-        console.log(move);
     }
 
     let interval = setInterval(function(){

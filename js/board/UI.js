@@ -1,5 +1,3 @@
-const pieceOrder = ["rook", "knight", "bishop", "queen", "king", "bishop", "knight", "rook"];
-
 function createUIBoard(){
 	let boardEl = document.getElementById("board");
 	let captureL = document.getElementById("capture-l");
@@ -31,7 +29,9 @@ function createUIBoard(){
 }
 function initOptions(){
 	let colorsEls = document.querySelectorAll(".toggle-color");
-	let algorithmEls = document.querySelectorAll(".toggle-bot");
+	let autoplayEl = document.getElementById("autoplay");
+	let difficultyEl = document.getElementById("difficulty");
+	autoplayEl.active = false;
 
 	colorsEls.forEach(function(el){
 		el.addEventListener("click", function(){
@@ -45,20 +45,23 @@ function initOptions(){
 			flipBoard();
 		})
 	})
-	algorithmEls.forEach(function(el){
-		el.addEventListener("click", function(){
-			algorithmEls.forEach(function(el2){
-				el2.classList.remove("toggle-active");
-			})
-
-			el.classList.toggle("toggle-active");
-			botMode = el.id;
-		})
+	autoplayEl.addEventListener("click", function(){
+		autoplayEl.active = !autoplayEl.active;
+		autoplayEl.classList.toggle("toggle-active");
+		autoplayEl.innerText = autoplayEl.innerText.replace((autoplayEl.active) ? "(off)" : "(on)", (autoplayEl.active) ? "(on)" : "(off)")
+		autoplay = autoplayEl.active;
+	})
+	difficultyEl.addEventListener("change", function(){
+		treeDepth = parseInt(difficultyEl.value)
 	})
 }
 function mousemove(event){
     let {x, y} = getCoordsFromEvent(event);
     let piece = UIboard[x][y];
+
+	if(x == movedCoords.x && y == movedCoords.y){
+		return;
+	}
 
 	highlightSquare(x, y);
 
@@ -73,16 +76,15 @@ function mousemove(event){
     if(piece.name == null){
         return;
     }
-    if(piece.color != playerColor){
+    if(piece.color != playerColor || piece.color != turnColor){
         return;
     }
-	if(piece.color != turnColor){
-		return;
-	}
 
     highlightPiece(piece);
 
     highlightMoves(piece);
+
+	movedCoords = {x: x, y: y}
 }
 function mouseclick(event){
     let {x, y} = getCoordsFromEvent(event);
@@ -105,7 +107,7 @@ function mouseclick(event){
 
         return;
     }else{
-        if(piece.name != null){
+        if(piece.name != null && piece.color == playerColor && piece.color == turnColor){
             clickedPiece = piece;
         }
     }
@@ -145,6 +147,7 @@ function createRect(row, col){
 	return square;
 }
 function createInternalBoard(){
+	const PIECE_ORDER = ["rook", "knight", "bishop", "queen", "king", "bishop", "knight", "rook"];
 	UIboard = [];
 	for (let row = 0; row < 8; row++) {
 		UIboard.push([]);
@@ -153,19 +156,12 @@ function createInternalBoard(){
 		}
 	}
 
-	// BLACK
 	for (let i = 0; i < 8; i++) {
-		createPiece("black", pieceOrder[i], 0 ,i);
+		createPiece("black", PIECE_ORDER[i], 0 ,i);
+		createPiece("white", PIECE_ORDER[i], 7 ,i);
 	}
 	for (let i = 0; i < 8; i++) {
 		createPiece("black", "pawn",1 ,i);
-	}
-
-	// WHITE
-	for (let i = 0; i < 8; i++) {
-		createPiece("white", pieceOrder[i], 7 ,i);
-	}
-	for (let i = 0; i < 8; i++) {
 		createPiece("white", "pawn",6 ,i);
 	}
 
@@ -195,10 +191,26 @@ function createInternalBoard(){
 	// createPiece("black", "pawn",5 ,0);
 	// createPiece("white", "pawn",2 ,7);
 
+	// trade test config
+	// createPiece("black", "king",0 ,0);
+	// createPiece("black", "pawn",5 ,5);
+	// createPiece("white", "king",7 ,7);
+	// createPiece("white", "pawn",6 ,4);
+	// createPiece("white", "rook",7 ,4);
+
+	// tie test config
+	// createPiece("black", "king",0 ,0);
+	// createPiece("white", "king",0 ,3);
+	// createPiece("white", "rook",1 ,3);
+
+	// createPiece("black", "king",0 ,0);
+	// createPiece("white", "king",0 ,4);
+	// createPiece("white", "queen",1 ,5);
+
 	board = minifyUIBoard();
 }
 function syncUI(){
-	for (let i = 0; cycleCount < moveList.length; cycleCount++) {
+	for (let _i; cycleCount < moveList.length; cycleCount++) {
 		let move = moveList[cycleCount];
 		movePiece(move);
 
@@ -351,7 +363,7 @@ function highlightPiece(piece){
 }
 function removeHighlight(removeCheck){
     let squares = document.querySelectorAll(".square");
-	let loc = getKingLocation(turnColor == "white");
+	let loc = getKingLocation(turnColor == "white", board);
 
     for (let i = 0; i < squares.length; i++) {
         if(squares[i].style.fill != ""){
@@ -380,6 +392,7 @@ function removeHighlight(removeCheck){
     }
 
 	isHighlighting = false;
+	movedCoords = {x: -1, y: -1}
 }
 function isCheckHighlight(square){
 	let r = (square.style.fill == COLOR_MATE || square.style.fill == COLOR_CHECK)
@@ -476,11 +489,11 @@ function logMoveDebug(board, move){
 	addElToMoves(color, `${from}${to}`);
 }
 function check(color){
-	highlightKing(color, false);
+	highlightKing(color, false, board);
 }
 function mate(color){
     if(color != "sdraw"){
-        highlightKing((color == "white"), true);
+        highlightKing((color == "white"), true, board);
     }
 	
     winner(invertColor(color))
@@ -488,21 +501,10 @@ function mate(color){
 function highlightPreviousMove(x, y){
 	document.getElementById(`${x}-${y}`).style.stroke = COLOR_PREV_MOVE;
 }
-function highlightKing(color, isMate){
-    let loc = getKingLocation(color);
+function highlightKing(color, isMate, board){
+    let loc = getKingLocation(color, board);
 
     document.getElementById(`${loc[0]}-${loc[1]}`).style.fill = (isMate) ? COLOR_MATE : COLOR_CHECK;
-}
-function getKingLocation(color){
-    let kingNumber = (color) ? 5 : 15;
-
-    for (let x = 0; x < 8; x++) {
-        for (let y = 0; y < 8; y++) {
-            if(board[x][y] == kingNumber){
-                return [x,y];
-            }
-        }
-    }
 }
 function winner(color){
 	let el = document.getElementById("winner");
@@ -543,7 +545,6 @@ function displayStats(str){
 }
 function clearStats(){
 	document.getElementById("stats").innerText = "";
-
 }
 function highlightSquare(x, y){
 	removeSquareHighlight();
@@ -571,6 +572,7 @@ function removeSquareHighlight(){
 	}
 }
 function toggleReplay(v){
+	// TODO: don't have the layout shift
 	document.getElementById("replayContainer").style.display = (v) ? "flex" : "none";
 }
 function toggleResign(v){
@@ -583,8 +585,10 @@ function clearCaptures(){
 		const id = ids[i]
 		let els = document.getElementById(id).children;
 
-		for (let i2 = 0; i2 < els.length; i2++) {
-			els[i2].remove();
+		while (els.length != 0) {
+			els[0].remove();
 		}
 	}
+
+	captured = [[],[]];
 }

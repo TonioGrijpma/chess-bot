@@ -17,11 +17,12 @@ body{
 .square{
 	/* stroke-width: 2px;
 	stroke: black; */
-    transition: fill .1s ease-in-out;
+    /* transition: fill .1s ease-in-out; */
 }
 .piece{
 	cursor: pointer;
     transition: 0.5s cubic-bezier(0.50, 0, 0.15, 1);
+    /* filter: drop-shadow(1px 3px 3px #00000063); */
 }
 .pointer{
 	cursor: pointer;
@@ -41,6 +42,11 @@ body{
 	user-select: none;
     white-space: nowrap;
 }
+.header{
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
 .chess-bot{
     height: 100px;
     image-rendering: pixelated;
@@ -56,6 +62,7 @@ body{
     display: flex;
     width: fit-content;
     margin: auto;
+    position: relative;
 }
 .flip{
     transform: rotate(180deg);
@@ -70,31 +77,67 @@ body{
     color: black;
     font-size: 16px;
     margin: 10px 0px 10px 0px;
+    height: 18px;
 }
 .color-container, .bot-container{
     display: flex;
     justify-content: center;
+    align-items: center;
+    gap: 10px;
 }
-.color-container button, .bot-container button{
-    margin: 10px 5px 0px 5px;
-}
-.button{
+button, input, select, .legend-item{
     background-color: white;
-    border: 2px #444444 solid;
+    border: 2px #5f5f5f solid;
     color: #444444;
     cursor: pointer;
-    white-space: nowrap;
-    border-radius: 5px;
-    margin: 0px 5px 0px 5px;
-    text-align: center;
+    border-radius: 2px;
     font-size: 20px;
-    padding: 5px 8px 5px 8px;
-    transition: 0.2s linear;
+    padding: 2px 10px 2px 8px;
+    text-align: center;
+}
+.button{
+    white-space: nowrap;
+    /* transition: 0.2s linear; */
+}
+#threads {
+    width: 70px;
+}
+#difficulty{
+    width: 90px;
 }
 .button:hover, .toggle-active{
-    background-color: orange;
+    background-color: #5f5f5f;
     color: white;
 }
+.thread-container{
+    display: flex;
+    width: 400px;
+    margin: auto;
+    justify-content: center;
+    flex-direction: column;
+}
+.thread-container p{
+    text-align: center;
+    margin-bottom: 0px;
+}
+.thread-idle{
+    color: #1cca00;
+}
+.thread-busy{
+    color: #ff5b5b;
+}
+#threads-visual{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: space-between;
+}
+#threads-visual span{
+    width: 90px;
+    white-space: nowrap;
+    margin-bottom: 2px;
+}
+
 /* error */
 .error{
 	text-align: center;
@@ -140,14 +183,10 @@ body{
 
 /* legend */
 .legend-item{
-    border: 2px solid;
-    border-radius: 5px;
-    margin: 0px 5px 0px 5px;
     width: 120px;
     text-align: center;
-    font-size: 20px;
     height: fit-content;
-    padding: 3px 0px 3px 0px;
+    cursor: default;
 }
 .legend-item p{
     margin: 0px;
@@ -173,6 +212,7 @@ body{
     display: flex;
     justify-content: center;
     margin-top: 10px;
+    gap: 10px;
 }
 
 /* moves */
@@ -199,11 +239,18 @@ body{
 .footer{
     padding-left: 5px;
     font-size: 13px;
-    padding-top: 40px;
+    position: absolute;
+    bottom: 0px;
 }
 .footer p{
     margin: 0px;
+    position: fixed;
+    z-index: 1;
+    bottom: 0px;
+    left: 0px;
     padding-bottom: 10px;
+    padding-left: 10px;
+    background-color: white;
 }
 
 /* overlay */
@@ -222,9 +269,9 @@ body{
 .victory-overlay-container{
     display: flex;
     justify-content: center;
+    top: 215px;
     width: 100%;
-    top: 380px;
-    position: fixed;
+    position: absolute;
 }
 
 /* timer */
@@ -250,5 +297,4 @@ body{
 .resign-container{
     display: flex;
     justify-content: center;
-    margin-bottom: 10px;
 }

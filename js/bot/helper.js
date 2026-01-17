@@ -1,25 +1,3 @@
-function botRandom(color){
-    const startTime = performance.now();
-    let allMoves = getAllMoves(board, color);
-
-    if(allMoves.length == 0){
-        return;
-    }
-
-    // pick random piece
-    let randomPiece = allMoves[Math.floor(Math.random() * allMoves.length)];
-
-    while(true){
-        let i = Math.floor(Math.random() * 4);
-        let randomMove = randomPiece.moveSet[i][Math.floor(Math.random() *randomPiece.moveSet[i].length)]
-
-        if(randomPiece.moveSet[i].length != 0){
-            displayStats(`Random took ${((performance.now() - startTime) / 1000).toFixed(2)}ms`);
-            return {x: randomPiece.x, y: randomPiece.y, toX: randomMove.x, toY: randomMove.y, type: i}
-        }
-    }
-}
-
 function getAllMoves(board, color){
     let r = [];
 
@@ -45,6 +23,10 @@ function getAllMoves(board, color){
             }
         }
 
+        if(getKingLocation(false, board) == undefined || getKingLocation(true, board) == undefined){
+            // TODO: should not happen
+            return;
+        }
         const moveSet = getMoveset(board, getTypeFromPieceInt(piece), x, y, true);
 
         // pawn being promoted
@@ -56,6 +38,7 @@ function getAllMoves(board, color){
         for (let i = 0; i < moveSet.length; i++) {
             if(moveSet[i].length != 0){
                 hasoptions = true;
+                break;
             }
         }
 
@@ -111,17 +94,33 @@ function canDoMove(board, fromX, fromY, toX, toY){
 
     return checks.length == 0;
 }
-function deepCopyBoard(board){
-    let r = [];
+function canDoCastle(board, fromX, fromY, toX, toY){
+    let newBoard = deepCopyBoard(board);
+    let white = newBoard[fromX][fromY] < 9;
 
-    for (let x = 0; x < 8; x++) {
-        r.push([]);
-        for (let y = 0; y < 8; y++) {
-            r[x][y] = board[x][y];
-        }
+    // move the king to the end location so we don't overwrite it
+    if(fromY == 0){
+        newBoard[toX][toY - 1] = (white) ? 5 : 15
+    }else{
+        newBoard[toX][toY + 1] = (white) ? 5 : 15
     }
 
-    return r;
+    return canDoMove(newBoard, fromX, fromY, toX, toY)
+}
+function deepCopyBoard(board){
+    // JSON hack is obviously very slow
+    // structuredClone also much slower
+
+    const length = board.length,
+    copy = new Array(length); // boost in Safari
+
+    // deep copies of 2d arrays only have to be dealt with one level deep:
+    // https://stackoverflow.com/a/13756775
+    for (let i = 0; i < length; ++i){
+        copy[i] = board[i].slice(0);
+    }
+
+    return copy;
 }
 function executeBotMove(board, m, save){
     switch (m.type) {
@@ -172,4 +171,99 @@ function pieceValue(board, x, y){
 
 function invertColor(color){
     return (color == "white") ? "black" : "white";
+}
+
+function mateCheck(board, white){
+    let colorString = (white) ? "white" : "black"
+    let state = getState(board, colorString);
+
+    switch (state) {
+        case 0:
+            return
+        case 1:
+            check(white, false, true);
+            break;
+        case 2:
+            mate(colorString);
+            break;
+        case 3:
+            mate("sdraw");
+            break;
+    }
+}
+
+// 0 = nothing,  1 = check, 2 = mate, 3 stalemate draw
+function getState(board, color){
+    let allChecks = getCheckedPieces(board, color == "white");
+    let r = 0;
+
+    if(allChecks.length > 0){
+        r = 1;
+
+        let allMoves = getAllMoves(board, color);
+        
+        if(allMoves.length == 0){
+            if(allChecks.length == 0){
+                r = 3
+            }else{
+                r = 2
+            }
+        }
+    }
+    
+    return r;
+}
+
+function getCheckedPieces(board, white){
+    let r = [];
+
+    for (let x = 0; x < 8; x++) {
+        for (let y = 0; y < 8; y++) {
+            checkMoves(x, y);
+        }
+    }
+
+    function checkMoves(x, y){
+        const piece = board[x][y];
+
+        if(piece == 6){
+            return;
+        }
+
+        if(white){
+            if(piece < 9){
+                return;
+            }
+        }else{
+            if(piece > 9){
+                return;
+            }
+        }
+
+        const moveSet = getMoveset(board, piece, x, y, false);
+
+        // pawn being promoted
+        if(moveSet.length == 0){
+            return;
+        }
+
+        if(moveSet[4].length == 0){
+            return;
+        }
+
+        r.push({x: x, y: y})
+    }
+
+    return r;
+}
+function getKingLocation(color, b){
+    let kingNumber = (color) ? 5 : 15;
+
+    for (let x = 0; x < 8; x++) {
+        for (let y = 0; y < 8; y++) {
+            if(b[x][y] == kingNumber){
+                return [x,y];
+            }
+        }
+    }
 }

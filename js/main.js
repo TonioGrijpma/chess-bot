@@ -1,4 +1,4 @@
-const VERSION = "1.2.0"
+const VERSION = "2.0.1"
 
 const COLOR_HOVER = "#fbd287"
 const COLOR_CAPTURE = "#f36969";
@@ -6,16 +6,16 @@ const COLOR_CASTLE = "rgb(209 90 209)";
 const COLOR_PROMOTION = "#952495";
 const COLOR_CHECK = "rgb(110, 110, 255)"
 const COLOR_MATE = "rgb(37, 37, 255)"
-const COLOR_PREV_MOVE = "rgb(255 152 0)"
+const COLOR_PREV_MOVE = "rgb(255, 152, 0)"
 
-const SQUARE_WIDTH = 60;					// square size of the board in px
-const BOARD_WIDTH = (SQUARE_WIDTH * 8) + 2;	// total with of the board
-
-const PIECEWORTH = [1, 5, 3, 3, 9, 0]		// capture worth of the pieces
+const SQUARE_WIDTH = 60;
+const BOARD_WIDTH = (SQUARE_WIDTH * 8) + 2;
 const BOT_CHECK_DELAY = 100;				// delay at which the program checks if it can make a move
-const BOT_MOVE_DELAY = 500;					// delay for the robot to animate it's move
 const TIME_UPDATE_DALAY = 250;				// interval in witch the timer will update
-const REPLAY_SPEED = 1000;
+const REPLAY_SPEED = 1500;
+const MOVE_MEMORY = 50;						// how many moves to remember to avoid repeated moves
+const MAX_REPEAT = 1;						// how many times the bot is allowed to repeat the same move within it's memory
+const ENDGAME_CYCLE_COUNT = 50;
 
 const BOARD_LAYOUT = [
 	["a8","b8","c8","d8","e8","f8","g8","h8"],
@@ -33,6 +33,7 @@ let botColor = "black";
 
 let hasMoved = [false, false, false, false, false, false]	// keep track if the rooks & kings have moved for Castling
 let clickedPiece = null;					// what piece has been clicked last
+let movedCoords = {x: -1, y: -1};
 
 let UIboard = [];							// grid with information for the UI
 let	board = [];								// simplified grid of only numbers
@@ -47,8 +48,20 @@ let isBotWaiting = false;					// makes sure the robot waits the full move delay
 let isHighlighting = false;					// this prevents highlights being cleared multiple times
 let startTime = new Date().getTime();
 let time = [0, 0];							// time in ms elapsed for each color
-let timeInterval = null;					// interval that updates the paytime
-let botMode = "subtraction";
+let timeInterval = null;					// interval that updates the playtime
+
+let maxWorkerPool = window.navigator.hardwareConcurrency || 4;
+let workerPool = new Array(maxWorkerPool);
+let tree = [];
+let botStartTime;
+let workersDone = 0;
+let workerBotMove;
+let allMoves;
+let movesChecked = 0;
+let autoplay = false;
+let treeDepth = 3;
+let threadWork = [];
+let lastMoves = [[], []]
 
 document.addEventListener('DOMContentLoaded', init)
 
@@ -56,6 +69,21 @@ function init(){
 	createUIBoard();
 	initOptions();
 	createInternalBoard();
+
+	document.getElementById("threads").addEventListener("change", function(){
+		maxWorkerPool = parseInt(this.value);
+		if(maxWorkerPool <= 0){
+			maxWorkerPool = 1;
+			this.value = 1;
+		}
+		if(maxWorkerPool > 256){
+			maxWorkerPool = 256;
+			this.value = 256;
+		}
+		initWorkerPool()
+	});
+
+	initWorkerPool()
 
 	if(playerColor == "black"){
 		flipBoard();
@@ -68,8 +96,193 @@ function init(){
 	setVersion();
 }
 
+function initWorkerPool(){
+	killWorkerPool();
+
+	const threadsVisualEl = document.getElementById("threads-visual");
+	document.getElementById("threads").value = maxWorkerPool;
+
+	workerPool = new Array(maxWorkerPool);
+
+	for (let i = 0; i < maxWorkerPool; i++){
+		workerPool[i] = new Worker('js/bot/points_worker.js');
+
+		workerPool[i].addEventListener('message', function(e) {
+			const subTree = e.data[0]
+			movesChecked += e.data[1]
+			const fromMove = e.data[2]
+			const treeWidth = tree[1].length;
+			
+			tree[2][fromMove] = subTree;
+
+			threadWork.splice(threadWork.indexOf(fromMove), 1)
+
+			updateThreadVisual();
+
+			workersDone++;
+			if(workersDone == treeWidth){
+				minifyTree(tree, 0);
+
+				for (let i = 0; i < treeDepth; i++) {
+					traverseTree(tree, null, treeDepth - i, 0);
+				}
+
+				if(lastMoves[1].length > MOVE_MEMORY){
+					lastMoves = [[],[]];
+				}
+
+				const treeIndexPair = tree[1].map((x,i) => [i,x[0]])
+				treeIndexPair.sort(function(a,b){ 
+					if(a[1] < b[1]){
+						return 1;
+					}
+					if(a[1] > b[1]){
+						return -1
+					}
+					return 0
+				})
+
+				// treeIndexPair sorted highest score first
+				let countTried = 0;
+				workerBotMove = allMoves[treeIndexPair[0][0]];
+				checkRepeatedMoves()
+				function checkRepeatedMoves(){
+					// prevent callstack exception in rare case
+					if(countTried > 50){
+						workerBotMove = allMoves[Math.floor(Math.random() * allMoves.length)]
+						return;
+					}
+					// the amount of times we have used this move
+					const repeatCount = lastMoves[(botColor == "white" ? 0 : 1)].filter(oldMove => 
+						oldMove.x == workerBotMove.x && oldMove.y == workerBotMove.y 
+						&& oldMove.toX == workerBotMove.toX && oldMove.toY == workerBotMove.toY 
+						&& oldMove.type == workerBotMove.type).length;
+
+					// if we used it more then allowed, pick the next best move and check again
+					if(repeatCount >= MAX_REPEAT){
+						const len = allMoves.length - 1;
+						const index = countTried > len ? countTried % len : countTried
+						workerBotMove = allMoves[treeIndexPair[index][0]];
+						countTried++;
+						checkRepeatedMoves();
+					}
+
+				}
+
+				lastMoves[(botColor == "white" ? 0 : 1)].push(workerBotMove)
+
+				displaySimStats(movesChecked, performance.now() - botStartTime);
+
+				removeHighlight(true);
+
+				executeBotMove(board, workerBotMove, true)
+
+				syncUI();
+
+				isBotWaiting = false;
+
+				endTurn();
+			}
+		}, false);
+		
+		workerPool[i].addEventListener('error', function(e) {
+			console.error(e);
+		}, false);
+
+		workerPool[i].postMessage(["init"]);
+
+		threadsVisualEl.appendChild(createThreadEl(i));
+	}
+}
+function killWorkerPool(){
+	for (let i = 0; i < workerPool.length; i++) {
+		if(workerPool[i] != null){
+			workerPool[i].terminate();
+		}
+	}
+
+	workerPool = [];
+
+	const threads = document.getElementById("threads-visual").children;
+	while(threads.length != 0){
+		threads[0].remove();
+	}
+}
+function updateThreadVisual(){
+	const threads = document.getElementById("threads-visual").children;
+	for (let i = 0; i < threads.length; i++) {
+		const element = threads[i];
+		const id = parseInt(element.threadId)
+		if(threadWork.includes(id)){
+			element.innerHTML = `#${id}${id < 10 ? "&nbsp" : ""} busy`
+			element.classList.add("thread-busy");
+			element.classList.remove("thread-idle");
+		}else{
+			element.innerHTML = `#${id}${id < 10 ? "&nbsp" : ""} idle`
+			element.classList.add("thread-idle");
+			element.classList.remove("thread-busy");
+		}
+	}
+}
+function createThreadEl(number){
+	let el = document.createElement("span");
+
+	el.innerHTML = `#${number}${number < 10 ? "&nbsp" : ""} idle`
+	el.threadId = number;
+	el.classList.add("thread-idle");
+
+	return el;
+}
+
+function minifyTree(tree, it){
+    if(tree[2] == null){
+        return;
+    }
+
+    for (let i = 0; i < tree[2].length; i++) {
+        minifyTree(tree[2][i], it + 1)
+    }
+
+    tree.splice(1, 1);
+}
+
+function traverseTree(tree, node, target, it){
+    if(target == 0){
+        return;
+    }
+
+    if(it == target){
+        node[1] = highest(node[1])
+        node[0] = node[0] - node[1];
+        node.splice(1,1);
+
+        return;
+    }
+
+    if(node == null){
+        node = tree;
+    }
+    for (let i = 0; i < node[1].length; i++) {
+        if(node == null){
+            traverseTree(tree, tree[1][i], target, it + 1)
+        }else{
+            traverseTree(tree, node[1][i], target, it + 1)
+        }
+    }
+}
+function highest(arr){
+    let r = 0;
+
+    for (let i = 0; i < arr.length; i++) {
+        if(arr[i][0] > r){
+            r = arr[i][0];
+        }
+    }
+
+    return r;
+}
 function botCheck(){
-	if(turnColor != botColor) return;
+	if(turnColor != botColor && !autoplay) return;
 
 	if(isBotWaiting) return;
 
@@ -77,55 +290,53 @@ function botCheck(){
 
 	isBotWaiting = true;
 
-	setTimeout(function() {
-		// check if endgame has begun
-		if(cycleCount > 20){
-			PST_B[5] = kie;
-		}
+	// if the endgame has begun assign the endgame PST to the king
+	if(cycleCount > ENDGAME_CYCLE_COUNT){
+		PST_B[5] = kie;
+	}
 
-		// change algorithm here
-		//let move = botpoints2(botColor);
+	if(autoplay){
+		botColor = invertColor(botColor);
+	}else{
+		botColor = invertColor(playerColor);
+	}
 
-		let move;
-		switch(botMode){
-			case "minimax":
-				move = botMinimax(botColor)
-				break;
-			case "subtraction":
-				move = botpoints(botColor)
-				break;
-			case "minimizer":
-				move = botMinOpponent(botColor)
-				break;
-			case "greedy":
-				move = botgreedy(botColor)
-				break;
-			case "spoints":
-				move = botPointsSingle(botColor)
-				break;
-			case "random":
-				move = botRandom(botColor)
-				break;
-			default:
-				move = botRandom(botColor)
-				break;
-		}
+	tree = [0];
+	botStartTime = performance.now();
+	allMoves = splitAllMoveSet(getAllMoves(board, botColor));
 
-		if(move == null){
-			// finished
-			return;
-		}
+	if(allMoves.length == 0){
+		return;
+	}
 
-		removeHighlight(true);
+	tree.push(allMoves, createBranch(board, allMoves, botColor));
 
-		executeBotMove(board, move, true)
+	createTreeMulti(board, tree, botColor);
+}
+function createBranch(board, allMoves, color){
+    let r = [];
 
-		syncUI();
+    for (let i = 0; i < allMoves.length; i++) {
+        let points = valueMove(board, allMoves[i], color, cycleCount);
+        movesChecked++;
+        r.push([points]);
+    }
 
-		isBotWaiting = false;
+    return r;
+}
+function createTreeMulti(board, tree, color){
+    for (let i2 = 0; i2 < tree[1].length; i2++) {
+        const worker = workerPool[i2 % maxWorkerPool];
 
-		endTurn();
-	}, BOT_MOVE_DELAY);
+		threadWork.push(i2 % maxWorkerPool);
+
+		let newBoard = deepCopyBoard(board);
+		executeBotMove(newBoard, tree[1][i2], false);
+
+        worker.postMessage(["buildTree", newBoard, 0, i2, tree, color, hasMoved, treeDepth, botColor, cycleCount]);
+    }
+
+	updateThreadVisual();
 }
 function endTurn(){
 	syncUI(board);
@@ -135,6 +346,13 @@ function endTurn(){
 	desyncCheck(board);
 
 	updateTime();
+
+	tree = [];
+	botStartTime;
+	workersDone = 0;
+	workerBotMove = null;
+	allMoves = null;
+	movesChecked = 0;
 
 	turnColor = (turnColor == "white") ? "black" : "white";
 }
@@ -157,12 +375,12 @@ function updateTimeEl(){
 	let sec = Math.floor((timeInMs / 1000) % 60);
 	let min = Math.floor((timeInMs / (60 * 1000)) % 60);
 
-	document.getElementById(`time${t}`).innerText = `${formatSeconds(min)}:${formatSeconds(sec)}:${ formatMiliseconds(ms)}`;
+	document.getElementById(`time${t}`).innerText = `${padNumber(min)}:${padNumber(sec)}:${padMiliseconds(ms)}`;
 }
-function formatSeconds(t){
+function padNumber(t){
 	return (t < 10) ? "0" + t : t
 }
-function formatMiliseconds(t){
+function padMiliseconds(t){
 	if(t < 10){
 		return "00" + t
 	}else if(t < 100){
@@ -187,6 +405,7 @@ function colorLegend(){
 
 		for (let i2 = 0; i2 < els.length; i2++) {
 			els[i2].style.color = classes[i][1];
+			els[i2].style.borderColor = classes[i][1];
 		}
 	}
 }
@@ -204,7 +423,7 @@ function setVersion(){
 }
 function resign(){
 	winner("resign");
-	highlightKing((botColor == "black"), true);
+	highlightKing((botColor == "black"), true, board);
 	toggleResign(false);
 
 	if(!moveList.includes("resign")){

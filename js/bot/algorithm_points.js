@@ -1,145 +1,34 @@
 // gives each possible move a value based on conditions
 // the best moves of each side are substracted, the highest value left will be the best move
-let movesChecked = 0;
-let treeDepth = 3;
 
-function botpoints(color){
-    let tree = [0];
-    let allMoves = splitAllMoveSet(getAllMoves(board, color));
-    let i = 0;
-    let startTime = performance.now();
+// pawn, rook, knight, bishop, queen ,king
+const PIECEWORTH = [1, 5, 3, 3, 9, 0]		// capture worth of the pieces
+const ST_VALUE_SCALE = 200                  // lower values make more use of ST
 
-    movesChecked = 0;
-    treeDepth = 3;
+// scores for a move
+const SCORE_CHECK = 0.2;
+const SCORE_MATE = Infinity;
+const SCORE_STALEMATE = -10;
+const SCORE_PROMOTION = 15;
+const SCORE_CASTLE = 5;
+const PIECE_CAPTURE_MODIFIER = 1;
 
-    if(allMoves.length == 0){
-        return;
-    }
+// scores for potential moves after we have made a move
+const SCORE_POTENTIAL_CHECK = 0.2;
+const SCORE_POTENTIAL_PROMOTION = 15;
+const SCORE_POTENTIAL_CASTLE = 5;
+const POTENTIAL_CAPTURE_MULTIPLIER = 5; // potentialValue = PIECEWORTH / this value
 
-    tree.push(allMoves, createBranch(board, allMoves, color));
+const SCORE_EARLY_PAWN_MULTI = 1;
+const SCORE_EARLY_KNIGHT_MULTI = 1;
+const SCORE_EARLY_BISHOP_ROOK = 1;
+const CLUMP_MODIFIER = -0.05                // this score will be substracted for every one of your own pieces that surround you
+const CHECK_POTENTIAL_MOVES = true;         // false = skip the potential moves step
+const BOARD_SCORE_OPPONENT_MULIPLIER = 1;
+const PERCENTAGE_LOSS_BASE = 1;             // punish a loss more if we have less pieces, higer is more
 
-    createTree(board, tree, i, color);
-
-    minifyTree(tree, 0);
-
-    for (let i = 0; i < treeDepth; i++) {
-        traverseTree(tree, null, treeDepth - i, 0);
-    }
-
-    // show the weights for debugging
-    // console.log(tree);
-
-    let move = allMoves[getMoveIndexFromTree(tree)];
-
-    displaySimStats(movesChecked, performance.now() - startTime);
-
-    return move;
-}
-function createBranch(board, allMoves, color){
-    let r = [];
-
-    for (let i = 0; i < allMoves.length; i++) {
-        let points = valueMove(board, allMoves[i], color);
-        movesChecked++;
-        r.push([points]);
-    }
-
-    return r;
-}
-function createTree(board, tree, i, color){
-    if(i == treeDepth){
-        return;
-    }
-
-    for (let i2 = 0; i2 < tree[1].length; i2++) {
-        let newBoard = deepCopyBoard(board);
-
-        executeBotMove(newBoard, tree[1][i2], false);
-
-        let allMoves = splitAllMoveSet(getAllMoves(newBoard, invertColor(color)));
-
-        tree[2][i2].push(allMoves, createBranch(newBoard, allMoves, invertColor(color)));
-
-        // TODO: split up to not freeze UI
-        createTree(newBoard, tree[2][i2], i + 1, invertColor(color));
-    }
-}
-function minifyTree(tree, it){
-    if(tree[2] == null){
-        return;
-    }
-
-    for (let i = 0; i < tree[2].length; i++) {
-        minifyTree(tree[2][i], it + 1)
-    }
-
-    tree.splice(1, 1);
-}
-
-function traverseTree(tree, node, target, it){
-    if(target == 0){
-        return;
-    }
-
-    if(it == target){
-        node[1] = highest(node[1])
-        node[0] = node[0] - node[1];
-        node.splice(1,1);
-
-        return;
-    }
-
-    if(node == null){
-        node = tree;
-    }
-    for (let i = 0; i < node[1].length; i++) {
-        if(node == null){
-            traverseTree(tree, tree[1][i], target, it + 1)
-        }else{
-            traverseTree(tree, node[1][i], target, it + 1)
-        }
-    }
-}
-function highest(arr){
-    let r = 0;
-
-    for (let i = 0; i < arr.length; i++) {
-        if(arr[i][0] > r){
-            r = arr[i][0];
-        }
-    }
-
-    return r;
-}
-function sum(arr){
-    let r = 0;
-
-    for (let i = 0; i < arr.length; i++) {
-        r += arr[i][0]
-    }
-
-    return r;
-}
-function getMoveIndexFromTree(tree){
-    let highestIndex = 0;
-    let highestValue = Number.MIN_SAFE_INTEGER;
-
-    for (let i = 0; i < tree[1].length; i++) {
-        if(tree[1][i][0] == highestValue){  // if moves have the same value's pick a random one to avoid repetition
-            if(Math.random() < 0.5){
-                highestIndex = i;
-            }
-        }
-        if(tree[1][i][0] > highestValue){
-            highestValue = tree[1][i][0];
-            highestIndex = i;
-        }
-    }
-
-    return highestIndex;
-}
-
-function valueMove(board, move, color){
+// move has NOT been executed yet
+function valueMove(board, move, color, cycleCount){
     let p = 0;
     let fromX = move.x;
     let fromY = move.y;
@@ -147,48 +36,65 @@ function valueMove(board, move, color){
     let toY = move.toY;
 
     let newBoard = deepCopyBoard(board);
-    newBoard[toX][toY] = newBoard[fromX][fromY]
-    newBoard[fromX][fromY] = 6;
-    
+    executeBotMove(newBoard, move, false);
+
+    // 0 = nothing, 1 = check, 2 = mate, 3 stalemate draw
     let state = getState(newBoard, invertColor(color));
 
-    p += getSTValue(toX, toY, getTypeFromPieceInt(board[fromX][fromY]), color, 100);
+    p += getSTValue(toX, toY, getTypeFromPieceInt(board[fromX][fromY]), color, ST_VALUE_SCALE);
+    p += boardClumpScore(newBoard, color) / 5;
+
+    // difference between the two players based on pieceworth
+    // a loss from yourself can be punished slightly more to discourage trading
+    const pieceScore = totalPieceScore(newBoard);
+    if(color == "white"){
+        p += (pieceScore[0] - (pieceScore[1] * BOARD_SCORE_OPPONENT_MULIPLIER)) / 5
+    }else{
+        p += (pieceScore[1] - (pieceScore[0] * BOARD_SCORE_OPPONENT_MULIPLIER)) / 5
+    }
 
     // in early game prioritize knight, bishop & pawns
     if(cycleCount < 8){
         p = calcEarlygamePoints(getTypeFromPieceInt(board[fromX][fromY]), p);
     }
-   
+
+    // 0 = move, 1 = capture, 2 = promotion, 3 = castle, 4 = check;
     switch (move.type) {
         case 0:
-            p += calcOptions(newBoard, toX, toY)
+            p += CHECK_POTENTIAL_MOVES ? (calcOptions(newBoard, toX, toY) / 20) : 0;
             break;
         case 1:
-            p += pieceValue(board, toX, toY) * 2;
+            const val = pieceValue(board, toX, toY) * PIECE_CAPTURE_MODIFIER;
+            const percentage = val / pieceScore[color == "white" ? 0 : 1]
+            p += val
+            p += PERCENTAGE_LOSS_BASE * percentage
             break;
         case 2: // promotion
-            p += 15
+            p += SCORE_PROMOTION
             break;
         case 3: // castle
-            p += 5;
+            p += SCORE_CASTLE;
+            break;
+        case 4: //check
+            p += SCORE_CHECK;
             break;
     }
 
     switch (state) {
         case 1:
-            p += 1
+            p += SCORE_CHECK
             break;
         case 2:
-            p += Infinity;
+            p += SCORE_MATE;
             break;
         case 3:
-            p -= 10;
+            p += SCORE_STALEMATE;
             break;
     }
 
     newBoard = null;
 
-    return p;
+    return p
 }
 
 function calcOptions(board, x, y){
@@ -201,87 +107,105 @@ function calcOptions(board, x, y){
             const move = moveSet[i2];
             
             if(i == 1){ // capture
-                r += (pieceValue(board, move.x, move.y) / 3);
-                continue;
+                r += (pieceValue(board, move.x, move.y) / POTENTIAL_CAPTURE_MULTIPLIER);
             }
             if(i == 2){ // promotion
-                r += 2;
+                r += SCORE_POTENTIAL_PROMOTION;
                 continue;
             }
             if(i == 3){ // castle
-                r += 2;
+                r += SCORE_POTENTIAL_CASTLE;
                 continue;
             }
-            // if(i == 4){ // check
-            //     r += 10;
-            //     continue;
-            // }
+            if(i == 4){ // check
+                r += SCORE_POTENTIAL_CHECK;
+                continue;
+            }
+        }
+    }
+
+    return r
+}
+function calcEarlygamePoints(type, p){
+    if(p < 0){
+        return p;
+    }
+    switch (type) {
+        case 0: // pawn
+            return (p *= SCORE_EARLY_PAWN_MULTI);
+        case 2: // knight
+            return (p *= SCORE_EARLY_KNIGHT_MULTI);
+        case 3: // bishop
+            return (p *= SCORE_EARLY_BISHOP_ROOK);
+        default:
+            return p;
+    }
+}
+function totalPieceScore(board){
+    let whiteScore = 0;
+    let blackScore = 0;
+
+    for (let i = 0; i < board.length; i++) {
+        for (let i2 = 0; i2 < board[i].length; i2++) {
+            if(board[i][i2] == 6){
+                continue;
+            }
+
+            const value = pieceValue(board, i, i2);
+
+            if(board[i][i2] < 6){
+                whiteScore += value
+            }else{
+                blackScore += value
+            }
+        }
+    }
+
+    return [whiteScore, blackScore]
+}
+function boardClumpScore(board, color){
+    const isWhite = color == "white"
+    const pawn = isWhite ? 0 : 10;
+    const checkMap = [[1, 0], [1, 1], [0, 1], [-1, 0], [-1, -1], [0, -1], [1, -1], [-1, 1]]
+    let r = 0;
+
+    for (let i = 0; i < board.length; i++) {
+        for (let i2 = 0; i2 < board[i].length; i2++) {
+            const piece = board[i][i2];
+
+            if(piece == pawn || piece == 6){
+                continue;
+            }
+
+            if(i > 0 && i < 7){
+                if(i2 > 0 && i2 < 7){
+                    if(isWhite){
+                        if(i == 6 || i == 7){
+                            r += CLUMP_MODIFIER; // move off the starting line
+                        }
+
+                        for (let i3 = 0; i3 < checkMap.length; i3++) {
+                            const boardPiece = board[i + checkMap[i3][0]][i2 + checkMap[i3][1]];
+                            if(boardPiece != 6 && boardPiece < 9 && boardPiece != pawn){
+                                r += CLUMP_MODIFIER;
+                            }
+                        }
+                    }else{
+                        if(i == 0 || i == 1){
+                            r += CLUMP_MODIFIER;
+                        }
+
+                        for (let i3 = 0; i3 < checkMap.length; i3++) {
+                            const boardPiece = board[i + checkMap[i3][0]][i2 + checkMap[i3][1]];
+                            if(boardPiece != 6 && boardPiece > 9 && boardPiece != pawn){
+                                r += CLUMP_MODIFIER;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
     return r;
 }
-function calcEarlygamePoints(type, p){
-    switch (type) {
-        case 0: // pawn
-            return (p *= 3);
-        case 2: // knight
-            return (p *= 1.5);
-        case 3: // bishop
-            return (p *= 2);
-        default:
-            return p;
-    }
-}
-
-function botPointsSingle(color){
-    let allMoves = splitAllMoveSet(getAllMoves(board, color));
-    let pointOverview = [];
-    let startTime = performance.now();
-
-    if(allMoves.length == 0){
-        return;
-    }
-
-    let highestPoints = 0;
-    let highestPointIndex = 0;
-
-    for (let i = 0; i < allMoves.length; i++) {
-        let points = valueMove(board, allMoves[i], color);
-
-        pointOverview.push(points, allMoves[i]);
-        movesChecked++;
-
-        if(points > highestPoints){
-            highestPoints = points;
-            highestPointIndex = i;
-        }
-    }
-
-    // no best move
-    if(highestPoints == 0){
-        return botRandom(color);
-    }
-
-    displaySimStats(movesChecked, performance.now() - startTime);
-
-    return allMoves[highestPointIndex];
-}
-
-// unused
-function potentialCapture(board, x, y){
-    const moveSet = getMoveset(board, board[x][y], x, y, false);
-    let v = 0;
-
-    for (let i = 0; i < moveSet.length; i++) {
-        if(i == 1){
-            const moves = moveSet[i];
-            for (let i2 = 0; i2 < moves.length; i2++) {
-                const move = moves[i2];
-                v += pieceValue(board, move.x, move.y);
-            }
-        }
-    }
-
-    return v;
-} 

@@ -3,28 +3,33 @@
 ## description
 A chess engine & UI written in JavaScript.
 
-Note: this engine is not bugless, more bugs are still being found.
+Note: this engine is not bugless
+
+![screenshot](img/screenshot.png)
 
 ## How to use
 Download the files and open index.html with any modern browser.
 
 ## How it works
-The chess engine explores all possible moves 4 levels deep. 
+The chess engine explores all possible moves 4/5 levels deep. 
 every move is valued based on:
 - captures
-- a piece square table
+- piece square table
 - state of the board (check, mate, stalemate)
 - pawns, knights and bishops get boosted points early game to encourage the use of them
+- how close pieces are together to encourage spread
 
-the tree is then traversed, the highest value of each branch are subtracted, leaving one value for each possible move.
-the highest value left will be the move that is played.
+the tree is then traversed, the highest value (supposed best move) of each branch are subtracted, leaving one value for each of the original moves.
+the highest value left will be the move that is played.  
+Tweak the scores in ``algorithm_points.js``
 
 ## TODO
 - stalemate sometimes does not show winner message
 - en passant
-- promotions visually stay pawns by match replays
+- promotions visually stay pawns when replaying the match
 - proper chess notation
-- prevent freezing the UI when making the tree
+- use nodes instead of weird array tree
+- have the bot resign in some special cases
 
 ## future features
 - improve end game

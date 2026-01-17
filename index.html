@@ -5,7 +5,6 @@
 <title>Chess bot</title>
 
 <link rel="stylesheet" href="css/style.css"></link>
-<script src="js/main.js"></script>
 
 <script src="js/board/board.js"></script>
 <script src="js/board/UI.js"></script>
@@ -13,18 +12,13 @@
 <script src="js/board/replay.js"></script>
 
 <script src="js/bot/helper.js"></script>
-<script src="js/bot/mateCheck.js"></script>
-<script src="js/bot/PieceSquareTable.js"></script>
-<script src="js/bot/algorithm_greedy.js"></script>
-<script src="js/bot/algorithm_min.js"></script>
+<script src="js/bot/pieceSquareTable.js"></script>
 <script src="js/bot/algorithm_points.js"></script>
-<script src="js/bot/algorithm_points_minimax.js"></script>
+<script src="js/bot/points_worker.js"></script>
+
+<script src="js/main.js"></script>
 
 <body>
-	<div class="victory-overlay-container">
-		<div id="winner" class="victory-overlay"></div>
-	</div>
-
 	<div id="promotionOverlay" class="promotion-overlay">
 		<div id="promotionContainer" class="promotion-container"></div>
 	</div>
@@ -34,8 +28,35 @@
 			<h1 class="title">Chess Bot</h1>
 			<img class="chess-bot" src="img/chessBot.png">
 		</div>
+
+		<div class="color-container">
+			<label for="threads">threads</label>
+			<input type="number" value="4" min="1" max="256" name="threads" id="threads" />
+
+			<label for="difficulty">difficulty</label>
+			<select id="difficulty" name="difficulty">
+				<option value="3">easy</option>
+				<option value="4">hard</option>
+			</select>
+		</div>
+
+		<div class="color-container">
+			<button id="white" class="button toggle-color toggle-active">White</button>
+			<button id="black" class="button toggle-color">Black</button>
+			<button id="autoplay" class="button">Autoplay (off)</button>
+		</div>
+
+		<div class="color-container">
+			<div class="resign-container" id="resignContainer">
+				<button onclick="resign()" class="button" id="resign">Resign</button>
+			</div>
+			<div class="replay-container" id="replayContainer">
+				<button onclick="replayMatch()" class="replay button" id="replay">Replay match</button>
+			</div>
+		</div>
 	</div>
 
+	<p class="stats" id="stats"></p>
 	<div class="timer-container">
 		<div id="timeW" class="timer white">0</div>
 		<div id="timeB" class="timer black">0</div>
@@ -45,72 +66,45 @@
 		<svg id="capture-l"></svg>
 		<svg id="board" width="802" height="802"></svg>
 		<svg id="capture-r"></svg>
+
+		<div class="victory-overlay-container">
+			<div id="winner" class="victory-overlay"></div>
+		</div>
 	</div>
 
-	<p class="stats" id="stats"></p>
-
-	<div class="resign-container" id="resignContainer">
-		<button onclick="resign()" class="button" id="resign">Resign</button>
+	<div class="thread-container">
+		<p>Thread status</p>
+		<div id="threads-visual"></div>
 	</div>
 
-	<div class="replay-container" id="replayContainer">
-		<button onclick="replayMatch()" class="replay button" id="replay">Replay match</button>
+	<div class="legend-item-row">
+		<div class="legend-item color-move">
+			<p class="color-move" class="legend-text">Move</p>
+		</div>
+		<div class="legend-item color-capture">
+			<p class="color-capture" class="legend-text">Capture</p>
+		</div>
+		<div class="legend-item color-castle">
+			<p class="color-castle" class="legend-text">Castle</p>
+		</div>
+	</div>
+	<div class="legend-item-row">
+		<div class="legend-item color-promotion">
+			<p class="color-promotion" class="legend-text">Promotion</p>
+		</div>
+		<div class="legend-item color-check">
+			<p class="color-check" class="legend-text">Check</p>
+		</div>
+		<div class="legend-item color-mate">
+			<p class="color-mate" class="legend-text">Mate</p>
+		</div>
 	</div>
 
 	<div class="info-container">
-		<h3 class="error" id="error"></h3>
-
-		<h3 class="legend-title">Moves</h3>
-		<div class="divider"></div>
 		<div class="moves" id="moves"></div>
-
-		<h3 class="legend-title">Opponent</h3>
-		<div class="divider"></div>
-		<div class="bot-container">
-			<button id="subtraction" class="button toggle-bot toggle-active">Subtraction</button>
-			<button id="minimizer" class="button toggle-bot">Minimizer</button>
-			<button id="minimax" class="button toggle-bot">Minimax</button>
-			<button id="greedy" class="button toggle-bot">Greedy</button>
-			<button id="spoints" class="button toggle-bot">Single Point</button>
-			<button id="random" class="button toggle-bot">Random</button>
-		</div>
-
-		<h3 class="legend-title">Color</h3>
-		<div class="divider"></div>
-		<div class="color-container">
-			<button id="white" class="button toggle-color toggle-active">White</button>
-			<button id="black" class="button toggle-color">Black</button>
-		</div>
-
-		<div id="legend" class="legend-container">
-			<h3 class="legend-title">Color legend</h3>
-			<div class="divider"></div>
-
-			<div class="legend-item-row">
-				<div class="legend-item color-move">
-					<p class="color-move" class="legend-text">Move</p>
-				</div>
-				<div class="legend-item color-capture">
-					<p class="color-capture" class="legend-text">Capture</p>
-				</div>
-				<div class="legend-item color-castle">
-					<p class="color-castle" class="legend-text">Castle</p>
-				</div>
-			</div>
-			<div class="legend-item-row">
-				<div class="legend-item color-promotion">
-					<p class="color-promotion" class="legend-text">Promotion</p>
-				</div>
-				<div class="legend-item color-check">
-					<p class="color-check" class="legend-text">Check</p>
-				</div>
-				<div class="legend-item color-mate">
-					<p class="color-mate" class="legend-text">Mate</p>
-				</div>
-			</div>
-		</div>
+		<span class="error" id="error"></span>
 	</div>
 
-	<div class="footer"><p id="footer">Made by: Tonio grijpma | version 1.2.0</p></div>
+	<div class="footer"><p id="footer">Made by: Tonio grijpma | version 2.0.1</p></div>
 </body>
 </html>

@@ -1,25 +1,23 @@
 function makeMove(piece, x, y){
 	let moveSet = getMovesetFromObject(piece);
 
-	for (let i = 0; i < moveSet.length; i++) {
-		let moveSubSet = moveSet[i]
+	for (let movetype = 0; movetype < moveSet.length; movetype++) {
+		let moveSubSet = moveSet[movetype]
 		if(moveSubSet.length == 0){
 			continue;
 		}
-		for (let i2 = 0; i2 < moveSubSet.length; i2++) {
-			if(moveSubSet[i2].x == x && moveSubSet[i2].y == y){
-				//do stuff
-
-				if(i == 0){
+		for (let i = 0; i < moveSubSet.length; i++) {
+			if(moveSubSet[i].x == x && moveSubSet[i].y == y){
+				if(movetype == 0){
 					move(board, clickedPiece.row, clickedPiece.col, x, y, true);
 				}
-				if(i == 1){
+				if(movetype == 1){
 					capture(board, clickedPiece.row, clickedPiece.col, x, y, true)
 				}
-				if(i == 2){
+				if(movetype == 2){
 					promote(board, clickedPiece.row, clickedPiece.col, x, y, 0, true);
 				}
-				if(i == 3){
+				if(movetype == 3){
 					castle(board, clickedPiece.row, clickedPiece.col, true);
 				}
 
